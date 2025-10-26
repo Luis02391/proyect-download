@@ -1,99 +1,49 @@
-from flask import Flask, request, jsonify, send_file
-import yt_dlp
-import tempfile
 import os
 import re
+import tempfile
+import yt_dlp
+from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
-@app.route("/")
-def home():
-    return jsonify({
-        "status": "ok",
-        "message": "🎬 API Universal Descargador HD lista 🚀",
-        "usage": {
-            "json_mode": "/api/download?url=https://...",
-            "direct_mode": "/api/direct?url=https://..."
-        }
-    })
-
-# -------------------------
-# 🔹 MODO 1: Devuelve JSON con info y directUrl
-# -------------------------
 @app.route("/api/download", methods=["GET"])
-def api_download():
+def download():
+    # Obtén el enlace del parámetro de la URL
     url = request.args.get("url")
     if not url:
         return jsonify({"error": "Falta el parámetro ?url="}), 400
 
-    # Limpia la URL
+    # Limpia la URL (en caso de que venga con parámetros adicionales)
     url = url.strip().replace(" ", "")
     url = re.sub(r"&(amp;)?utm_.*", "", url)
 
     try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'noplaylist': True,
-            'format': 'bestvideo+bestaudio/best',
-            'merge_output_format': 'mp4',
-            'skip_download': True,
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-            title = info.get("title", "Video")
-            thumbnail = info.get("thumbnail", "")
-            ext = info.get("ext", "mp4")
-            direct_url = info.get("url")
-
-            # Si no tiene url directa, busca la mejor
-            if not direct_url and "formats" in info:
-                best = max(info["formats"], key=lambda f: f.get("height", 0))
-                direct_url = best.get("url")
-
-            if not direct_url:
-                return jsonify({"error": "No se pudo obtener el enlace directo."}), 500
-
-            return jsonify({
-                "status": "success",
-                "title": title,
-                "extension": ext,
-                "thumbnail": thumbnail,
-                "directUrl": direct_url
-            })
-
-    except Exception as e:
-        print("Error:", e)
-        return jsonify({"error": f"No se pudo procesar el enlace: {str(e)}"}), 500
-
-
-# -------------------------
-# 🔹 MODO 2: Descarga y entrega el MP4 directamente
-# -------------------------
-@app.route("/api/direct", methods=["GET"])
-def api_direct():
-    url = request.args.get("url")
-    if not url:
-        return jsonify({"error": "Falta el parámetro ?url="}), 400
-
-    # Limpia URL
-    url = url.strip().replace(" ", "")
-    url = re.sub(r"&(amp;)?utm_.*", "", url)
-
-    try:
-        # Archivo temporal
+        # Crea un archivo temporal para guardar el video descargado
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+            # Opciones de yt-dlp
             ydl_opts = {
                 "quiet": True,
-                "outtmpl": tmp.name,
                 "format": "bestvideo+bestaudio/best",
                 "merge_output_format": "mp4",
+                "outtmpl": tmp.name,  # guarda el video en el archivo temporal
+                "noplaylist": True,
+                "http_headers": {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "Referer": "https://www.tiktok.com/",
+                    "Accept": "*/*",
+                    "Accept-Language": "en-US,en;q=0.9"
+                }
             }
+
+            # Descargar el video usando yt-dlp
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
 
+            # Verifica si el archivo descargado tiene contenido
+            if os.path.getsize(tmp.name) == 0:
+                return jsonify({"error": "El archivo descargado está vacío (probablemente bloqueo de origen)."}), 502
+
+            # Devuelve el archivo MP4 como respuesta al cliente
             return send_file(
                 tmp.name,
                 mimetype="video/mp4",
@@ -102,7 +52,6 @@ def api_direct():
             )
 
     except Exception as e:
-        print("Error:", e)
         return jsonify({"error": f"No se pudo descargar: {str(e)}"}), 500
 
 
