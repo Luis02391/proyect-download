@@ -6,23 +6,25 @@ from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
-@app.route("/api/direct", methods=["GET"])
-def api_direct():
+@app.route("/api/download", methods=["GET"])
+def download():
+    # Obtén el enlace del parámetro de la URL
     url = request.args.get("url")
     if not url:
         return jsonify({"error": "Falta el parámetro ?url="}), 400
 
+    # Limpia la URL (en caso de que venga con parámetros adicionales)
     url = url.strip().replace(" ", "")
     url = re.sub(r"&(amp;)?utm_.*", "", url)
 
     try:
-        # Crea un archivo temporal
+        # Crea un archivo temporal para guardar el video descargado
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
             ydl_opts = {
                 "quiet": True,
                 "format": "bestvideo+bestaudio/best",
                 "merge_output_format": "mp4",
-                "outtmpl": tmp.name,
+                "outtmpl": tmp.name,  # Guarda el video en el archivo temporal
                 "noplaylist": True,
                 "retries": 3,
                 "source_address": "0.0.0.0",
@@ -32,16 +34,18 @@ def api_direct():
                     "Accept": "*/*",
                     "Accept-Language": "en-US,en;q=0.9",
                 },
-                # Impersonar como un navegador válido (usar la configuración de 'impersonate')
+                # No es necesario hacer impersonación para cada plataforma
                 "postprocessors": [{
                     "key": "FFmpegVideoConvertor",
-                    "preferredformat": "mp4",
+                    "preferedformat": "mp4",
                 }],
+                # Extraer URL de múltiples plataformas
                 "extractor_args": {
-                    "tiktok": ["--impersonate", "chrome"]
+                    "all": ["--noplaylist"]  # Elimina las listas de reproducción (si hay)
                 }
             }
 
+            # Descargar el video usando yt-dlp
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
 
