@@ -1,14 +1,13 @@
 import os
 import re
 import tempfile
-import yt_dlp
+import you_get
 from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
 @app.route("/api/download", methods=["GET"])
 def download():
-    # Obtén el enlace del parámetro de la URL
     url = request.args.get("url")
     if not url:
         return jsonify({"error": "Falta el parámetro ?url="}), 400
@@ -20,34 +19,8 @@ def download():
     try:
         # Crea un archivo temporal para guardar el video descargado
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            ydl_opts = {
-                "quiet": True,
-                "format": "bestvideo+bestaudio/best",
-                "merge_output_format": "mp4",
-                "outtmpl": tmp.name,  # Guarda el video en el archivo temporal
-                "noplaylist": True,
-                "retries": 3,
-                "source_address": "0.0.0.0",
-                "http_headers": {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                    "Referer": "https://www.tiktok.com/",
-                    "Accept": "*/*",
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
-                # No es necesario hacer impersonación para cada plataforma
-                "postprocessors": [{
-                    "key": "FFmpegVideoConvertor",
-                    "preferedformat": "mp4",
-                }],
-                # Extraer URL de múltiples plataformas
-                "extractor_args": {
-                    "all": ["--noplaylist"]  # Elimina las listas de reproducción (si hay)
-                }
-            }
-
-            # Descargar el video usando yt-dlp
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            # Usa You-Get para descargar el video
+            you_get.download(url, output_dir=os.path.dirname(tmp.name))
 
             # Verifica si el archivo tiene contenido
             if os.path.getsize(tmp.name) == 0:
