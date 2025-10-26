@@ -1,7 +1,7 @@
 import os
 import re
 import tempfile
-import you_get
+import subprocess
 from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
@@ -19,8 +19,10 @@ def download():
     try:
         # Crea un archivo temporal para guardar el video descargado
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            # Usa You-Get para descargar el video
-            you_get.download(url, output_dir=os.path.dirname(tmp.name))
+            output_dir = os.path.dirname(tmp.name)  # Directorio donde se guarda el video
+
+            # Usar subprocess para ejecutar el comando You-Get en la terminal
+            subprocess.run(['you-get', '-o', output_dir, url], check=True)
 
             # Verifica si el archivo tiene contenido
             if os.path.getsize(tmp.name) == 0:
