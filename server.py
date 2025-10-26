@@ -1,42 +1,82 @@
-from fastapi import FastAPI, HTTPException
+import os
+import re
+import tempfile
 import requests
-from io import BytesIO
-from fastapi.responses import StreamingResponse
+import subprocess
+from flask import Flask, request, jsonify, send_file
 
-app = FastAPI()
+# Define la aplicación Flask
+app = Flask(__name__)
 
-# Ruta para descargar el video
-@app.get("/descargar_video")
-async def descargar_video(url: str, api_key: str):
-    # Endpoint de la API FastSaver
-    endpoint = "https://fastsaverapi.com/api/v1/download"
-    params = {
-        "url": url,
-        "api_key": api_key
-    }
+def repackage_video(input_file, output_file):
+    """Reempaquetar el video utilizando FFmpeg para asegurar que sea compatible"""
+    command = [
+        "ffmpeg",
+        "-i", input_file,  # Archivo de entrada
+        "-c", "copy",      # Copiar sin reencodear
+        output_file        # Archivo de salida
+    ]
+    
+    # Capturar los logs de FFmpeg para depuración
+    result = subprocess.run(command, capture_output=True, text=True)
+    
+    # Mostrar el error de FFmpeg si existe
+    if result.returncode != 0:
+        print("FFmpeg error:", result.stderr)
+        return False
+    
+    # Devolver el estado de FFmpeg
+    return result.returncode == 0
 
-    # Hacer la solicitud GET al servicio de FastSaverAPI
-    response = requests.get(endpoint, params=params)
+@app.route("/api/download", methods=["GET"])
+def download():
+    url = request.args.get("url")
+    if not url:
+        return jsonify({"error": "Falta el parámetro ?url="}), 400
 
-    if response.status_code != 200:
-        raise HTTPException(status_code=400, detail="Error al contactar la API de descarga.")
+    # Limpiar la URL
+    url = url.strip().replace(" ", "")
+    url = re.sub(r"&(amp;)?utm_.*", "", url)
 
-    # Procesamos la respuesta JSON para obtener el enlace del video
-    data = response.json()
-    if data["status"] != "success":
-        raise HTTPException(status_code=400, detail=f"Error en la API: {data['message']}")
+    try:
+        # Realizar la solicitud GET al enlace del video
+        response = requests.get(url, stream=True)
 
-    video_url = data["data"]["video"]
+        if response.status_code == 200:
+            # Crear un archivo temporal para guardar el video
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+                for chunk in response.iter_content(chunk_size=8192):
+                    tmp.write(chunk)
 
-    # Solicitar el video
-    video_response = requests.get(video_url)
+            # Verificar si el archivo tiene contenido
+            file_size = os.path.getsize(tmp.name)
+            if file_size == 0:
+                return jsonify({"error": "El archivo descargado está vacío (probablemente bloqueo de origen)."}), 502
 
-    if video_response.status_code != 200:
-        raise HTTPException(status_code=400, detail="Error al descargar el video.")
+            # Eliminar la verificación de tamaño para pruebas
+            #if file_size < 1 * 1024 * 1024:  # 1MB como mínimo
+            #    return jsonify({"error": "El archivo es demasiado pequeño, probablemente esté incompleto."}), 502
 
-    # Devolver el video como respuesta en formato binario
-    video_bytes = BytesIO(video_response.content)
-    return StreamingResponse(video_bytes, media_type="video/mp4")
+            # Reempaquetar el archivo para asegurarnos de que sea un video válido
+            repackage_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+            if not repackage_video(tmp.name, repackage_file.name):
+                return jsonify({"error": "No se pudo reempaquetar el video correctamente."}), 500
 
-# Para correr el servidor de FastAPI, usa el siguiente comando:
-# uvicorn nombre_del_archivo:app --reload
+            # Eliminar el archivo temporal original después del reempaquetado
+            os.remove(tmp.name)
+
+            # Devolver el archivo MP4 reempaquetado como respuesta al cliente
+            return send_file(
+                repackage_file.name,
+                mimetype="video/mp4",
+                as_attachment=True,
+                download_name="video.mp4"
+            )
+        else:
+            return jsonify({"error": "No se pudo descargar el video."}), 500
+    except Exception as e:
+        return jsonify({"error": f"No se pudo descargar: {str(e)}"}), 500
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
