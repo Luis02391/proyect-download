@@ -16,7 +16,15 @@ def repackage_video(input_file, output_file):
         output_file        # Archivo de salida
     ]
     
-    subprocess.run(command, check=True)
+    # Capturar los logs de FFmpeg para depuración
+    result = subprocess.run(command, capture_output=True, text=True)
+    
+    # Mostrar el error de FFmpeg si existe
+    if result.returncode != 0:
+        print("FFmpeg error:", result.stderr)
+    
+    # Devolver el estado de FFmpeg
+    return result.returncode == 0
 
 @app.route("/api/download", methods=["GET"])
 def download():
@@ -39,12 +47,18 @@ def download():
                     tmp.write(chunk)
 
             # Verificar si el archivo tiene contenido
-            if os.path.getsize(tmp.name) == 0:
+            file_size = os.path.getsize(tmp.name)
+            if file_size == 0:
                 return jsonify({"error": "El archivo descargado está vacío (probablemente bloqueo de origen)."}), 502
+
+            # Verificar que el archivo tiene un tamaño adecuado
+            if file_size < 1 * 1024 * 1024:  # 1MB como mínimo
+                return jsonify({"error": "El archivo es demasiado pequeño, probablemente esté incompleto."}), 502
 
             # Reempaquetar el archivo para asegurarnos de que sea un video válido
             repackage_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-            repackage_video(tmp.name, repackage_file.name)
+            if not repackage_video(tmp.name, repackage_file.name):
+                return jsonify({"error": "No se pudo reempaquetar el video correctamente."}), 500
 
             # Eliminar el archivo temporal original después del reempaquetado
             os.remove(tmp.name)
