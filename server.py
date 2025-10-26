@@ -1,38 +1,34 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import yt_dlp
+import tempfile
+import os
 import re
-import os  # ✅ necesario para Render
 
 app = Flask(__name__)
-
-# ✅ habilita CORS por si lo llamas desde el Atajo o navegador
-@app.after_request
-def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    return response
-
 
 @app.route("/")
 def home():
     return jsonify({
         "status": "ok",
-        "message": "API Universal Descargador HD lista 🚀",
-        "usage": "/api/download?url=https://..."
+        "message": "🎬 API Universal Descargador HD lista 🚀",
+        "usage": {
+            "json_mode": "/api/download?url=https://...",
+            "direct_mode": "/api/direct?url=https://..."
+        }
     })
 
-
+# -------------------------
+# 🔹 MODO 1: Devuelve JSON con info y directUrl
+# -------------------------
 @app.route("/api/download", methods=["GET"])
-def download():
+def api_download():
     url = request.args.get("url")
-
     if not url:
         return jsonify({"error": "Falta el parámetro ?url="}), 400
 
-    # 🔹 Limpia el enlace (por si viene con espacios o basura)
+    # Limpia la URL
     url = url.strip().replace(" ", "")
-    url = re.sub(r"&?(amp;)?utm_.*", "", url)
+    url = re.sub(r"&(amp;)?utm_.*", "", url)
 
     try:
         ydl_opts = {
@@ -47,19 +43,18 @@ def download():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-            # Extrae datos útiles
             title = info.get("title", "Video")
             thumbnail = info.get("thumbnail", "")
             ext = info.get("ext", "mp4")
-
-            # 🔹 Encuentra la mejor URL directa posible
             direct_url = info.get("url")
+
+            # Si no tiene url directa, busca la mejor
             if not direct_url and "formats" in info:
-                best = max(info["formats"], key=lambda f: f.get("height", 0) or 0)
+                best = max(info["formats"], key=lambda f: f.get("height", 0))
                 direct_url = best.get("url")
 
             if not direct_url:
-                return jsonify({"error": "No se pudo obtener un enlace directo."}), 500
+                return jsonify({"error": "No se pudo obtener el enlace directo."}), 500
 
             return jsonify({
                 "status": "success",
@@ -70,11 +65,47 @@ def download():
             })
 
     except Exception as e:
-        print("❌ Error:", e)
+        print("Error:", e)
         return jsonify({"error": f"No se pudo procesar el enlace: {str(e)}"}), 500
 
 
+# -------------------------
+# 🔹 MODO 2: Descarga y entrega el MP4 directamente
+# -------------------------
+@app.route("/api/direct", methods=["GET"])
+def api_direct():
+    url = request.args.get("url")
+    if not url:
+        return jsonify({"error": "Falta el parámetro ?url="}), 400
+
+    # Limpia URL
+    url = url.strip().replace(" ", "")
+    url = re.sub(r"&(amp;)?utm_.*", "", url)
+
+    try:
+        # Archivo temporal
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+            ydl_opts = {
+                "quiet": True,
+                "outtmpl": tmp.name,
+                "format": "bestvideo+bestaudio/best",
+                "merge_output_format": "mp4",
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+
+            return send_file(
+                tmp.name,
+                mimetype="video/mp4",
+                as_attachment=True,
+                download_name="video.mp4"
+            )
+
+    except Exception as e:
+        print("Error:", e)
+        return jsonify({"error": f"No se pudo descargar: {str(e)}"}), 500
+
+
 if __name__ == "__main__":
-    # 🔹 Render necesita usar el puerto dinámico asignado
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
