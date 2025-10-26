@@ -1,3 +1,32 @@
+import os
+import re
+import tempfile
+import requests
+import subprocess
+from flask import Flask, request, jsonify, send_file
+
+# Define the Flask app first
+app = Flask(__name__)
+
+def repackage_video(input_file, output_file):
+    """Reempaquetar el video utilizando FFmpeg para asegurar que sea compatible"""
+    command = [
+        "ffmpeg",
+        "-i", input_file,  # Archivo de entrada
+        "-c", "copy",      # Copiar sin reencodear
+        output_file        # Archivo de salida
+    ]
+    
+    # Capturar los logs de FFmpeg para depuración
+    result = subprocess.run(command, capture_output=True, text=True)
+    
+    # Mostrar el error de FFmpeg si existe
+    if result.returncode != 0:
+        print("FFmpeg error:", result.stderr)
+    
+    # Devolver el estado de FFmpeg
+    return result.returncode == 0
+
 @app.route("/api/download", methods=["GET"])
 def download():
     url = request.args.get("url")
@@ -46,3 +75,7 @@ def download():
             return jsonify({"error": "No se pudo descargar el video."}), 500
     except Exception as e:
         return jsonify({"error": f"No se pudo descargar: {str(e)}"}), 500
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
