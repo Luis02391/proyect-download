@@ -6,44 +6,50 @@ from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
-@app.route("/api/download", methods=["GET"])
-def download():
-    # Obtén el enlace del parámetro de la URL
+@app.route("/api/direct", methods=["GET"])
+def api_direct():
     url = request.args.get("url")
     if not url:
         return jsonify({"error": "Falta el parámetro ?url="}), 400
 
-    # Limpia la URL (en caso de que venga con parámetros adicionales)
     url = url.strip().replace(" ", "")
     url = re.sub(r"&(amp;)?utm_.*", "", url)
 
     try:
-        # Crea un archivo temporal para guardar el video descargado
+        # Crea un archivo temporal
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            # Opciones de yt-dlp
             ydl_opts = {
                 "quiet": True,
                 "format": "bestvideo+bestaudio/best",
                 "merge_output_format": "mp4",
-                "outtmpl": tmp.name,  # guarda el video en el archivo temporal
+                "outtmpl": tmp.name,
                 "noplaylist": True,
+                "retries": 3,
+                "source_address": "0.0.0.0",
                 "http_headers": {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                     "Referer": "https://www.tiktok.com/",
                     "Accept": "*/*",
-                    "Accept-Language": "en-US,en;q=0.9"
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+                # Impersonar como un navegador válido (usar la configuración de 'impersonate')
+                "postprocessors": [{
+                    "key": "FFmpegVideoConvertor",
+                    "preferredformat": "mp4",
+                }],
+                "extractor_args": {
+                    "tiktok": ["--impersonate", "chrome"]
                 }
             }
 
-            # Descargar el video usando yt-dlp
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
 
-            # Verifica si el archivo descargado tiene contenido
+            # Verifica si el archivo tiene contenido
             if os.path.getsize(tmp.name) == 0:
                 return jsonify({"error": "El archivo descargado está vacío (probablemente bloqueo de origen)."}), 502
 
-            # Devuelve el archivo MP4 como respuesta al cliente
+            # Devuelve el video descargado
             return send_file(
                 tmp.name,
                 mimetype="video/mp4",
