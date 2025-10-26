@@ -1,31 +1,3 @@
-import os
-import re
-import tempfile
-import requests
-import subprocess
-from flask import Flask, request, jsonify, send_file
-
-app = Flask(__name__)
-
-def repackage_video(input_file, output_file):
-    """Reempaquetar el video utilizando FFmpeg para asegurar que sea compatible"""
-    command = [
-        "ffmpeg",
-        "-i", input_file,  # Archivo de entrada
-        "-c", "copy",      # Copiar sin reencodear
-        output_file        # Archivo de salida
-    ]
-    
-    # Capturar los logs de FFmpeg para depuración
-    result = subprocess.run(command, capture_output=True, text=True)
-    
-    # Mostrar el error de FFmpeg si existe
-    if result.returncode != 0:
-        print("FFmpeg error:", result.stderr)
-    
-    # Devolver el estado de FFmpeg
-    return result.returncode == 0
-
 @app.route("/api/download", methods=["GET"])
 def download():
     url = request.args.get("url")
@@ -51,9 +23,9 @@ def download():
             if file_size == 0:
                 return jsonify({"error": "El archivo descargado está vacío (probablemente bloqueo de origen)."}), 502
 
-            # Verificar que el archivo tiene un tamaño adecuado
-            if file_size < 1 * 1024 * 1024:  # 1MB como mínimo
-                return jsonify({"error": "El archivo es demasiado pequeño, probablemente esté incompleto."}), 502
+            # Eliminar la verificación de tamaño para pruebas
+            #if file_size < 1 * 1024 * 1024:  # 1MB como mínimo
+            #    return jsonify({"error": "El archivo es demasiado pequeño, probablemente esté incompleto."}), 502
 
             # Reempaquetar el archivo para asegurarnos de que sea un video válido
             repackage_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
@@ -74,7 +46,3 @@ def download():
             return jsonify({"error": "No se pudo descargar el video."}), 500
     except Exception as e:
         return jsonify({"error": f"No se pudo descargar: {str(e)}"}), 500
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
