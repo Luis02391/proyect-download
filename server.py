@@ -2,9 +2,21 @@ import os
 import re
 import tempfile
 import requests
+import subprocess
 from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
+
+def repackage_video(input_file, output_file):
+    """Reempaquetar el video utilizando FFmpeg para asegurar que sea compatible"""
+    command = [
+        "ffmpeg",
+        "-i", input_file,  # Archivo de entrada
+        "-c", "copy",      # Copiar sin reencodear
+        output_file        # Archivo de salida
+    ]
+    
+    subprocess.run(command, check=True)
 
 @app.route("/api/download", methods=["GET"])
 def download():
@@ -30,9 +42,16 @@ def download():
             if os.path.getsize(tmp.name) == 0:
                 return jsonify({"error": "El archivo descargado está vacío (probablemente bloqueo de origen)."}), 502
 
-            # Devolver el archivo MP4 como respuesta al cliente
+            # Reempaquetar el archivo para asegurarnos de que sea un video válido
+            repackage_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+            repackage_video(tmp.name, repackage_file.name)
+
+            # Eliminar el archivo temporal original después del reempaquetado
+            os.remove(tmp.name)
+
+            # Devolver el archivo MP4 reempaquetado como respuesta al cliente
             return send_file(
-                tmp.name,
+                repackage_file.name,
                 mimetype="video/mp4",
                 as_attachment=True,
                 download_name="video.mp4"
